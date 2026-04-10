@@ -25,12 +25,12 @@ FREQ_STEPS = 11
 # --- BOARD ELEMENTS
 board_th = 1.6 * mm
 cu_th = 0.0348 * mm
-gnd_l = 100 * mm
+gnd_l = 80 * mm
 gnd_w = 30 * mm
 ant_clearance = 12 * mm
-pad_gap = 10 * mm
+pad_gap = 1 * mm
 
-pad_w = 6 * mm
+pad_w = 25 * mm
 pad_l = 6 * mm
 
 diel_l = gnd_l + pad_gap + pad_l + 0.5 * mm
