@@ -1,4 +1,5 @@
 import os
+import sys
 from contextlib import contextmanager
 
 import emerge as em
@@ -6,8 +7,36 @@ import numpy as np
 from emerge.plot import plot_sp, smith, plot_ff_polar, plot_ff
 import matplotlib.pyplot as plt
 
-HEADLESS=False
-OUT = "output_booster-revamped"
+########################
+### ENV LOAD HELPERS ###
+########################
+
+def _load_dotenv(path=".env"):
+    if os.path.exists(path):
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                os.environ.setdefault(key.strip(), value.strip())
+
+def _env_bool(name, default):
+    val = os.environ.get(name)
+    return default if val is None else val.strip().lower() in ("1", "true", "yes", "on")
+
+def _env_string(name, default):
+    val = os.environ.get(name)
+    return default if val is None else val.strip()
+
+_load_dotenv()
+
+#################
+### ENV FLAGS ###
+#################
+HEADLESS = _env_bool("HEADLESS", False)
+INSPECT_GEO_ONLY = _env_bool("INSPECT_GEO_ONLY", True)
+OUT = _env_string("OUT_DIR", "output_booster-revamped")
 os.makedirs(OUT, exist_ok=True)
 
 """
@@ -29,7 +58,7 @@ FREQ_STEPS = 51
 # --- BOARD ELEMENT
 board_th = 1.6 * mm
 cu_th = 0.0348 * mm
-gnd_l = 85 * mm # note resonant at 78; try others; 
+gnd_l = 78 * mm # note resonant at 78; try others; 
 gnd_w = 30 * mm
 pad_gap = 1 * mm
 
@@ -79,6 +108,9 @@ port = em.geo.Plate(
         )
 
 model.view(off_screen=HEADLESS)
+
+if INSPECT_GEO_ONLY:
+    sys.exit(0)
 
 # --- REFINE MESH
 model.mw.set_resolution(0.3)
