@@ -29,14 +29,33 @@ def _env_string(name, default):
     val = os.environ.get(name)
     return default if val is None else val.strip()
 
+def _env_float(name, default):
+    val = os.environ.get(name)
+    return default if val is None else float(val.strip())
+
+def _format_mm(value):
+    return f"{value:g}".replace(".", "p")
+
 _load_dotenv()
 
-#################
-### ENV FLAGS ###
-#################
+##################
+### ENV CONFIG ###
+##################
 HEADLESS = _env_bool("HEADLESS", False)
 INSPECT_GEO_ONLY = _env_bool("INSPECT_GEO_ONLY", True)
-OUT = _env_string("OUT_DIR", "output_booster-revamped")
+
+# Dimensions in millimetres
+PAD_GAP = _env_float("PAD_GAP", 1.0)
+PAD_W = _env_float("PAD_W", 6.0)
+PAD_L = _env_float("PAD_L", 8.0)
+BOARD_L = _env_float("BOARD_L", 78)
+BOARD_W = _env_float("BOARD_W", 30)
+BOARD_TH = _env_float("BOARD_TH", 1.6)
+
+OUT = _env_string(
+    "OUT_DIR",
+    f"output_gap{_format_mm(PAD_GAP)}mm_pad{_format_mm(PAD_W)}x{_format_mm(PAD_L)}mm_{_format_mm(BOARD_L)}x{_format_mm(BOARD_W)}_boardlen",
+)
 os.makedirs(OUT, exist_ok=True)
 
 """
@@ -53,17 +72,27 @@ f1 = f0 - bw/2
 f2 = f0 + bw/2
 # f1 = 600e6
 # f2 = 1000e6
-FREQ_STEPS = 51
+FREQ_STEPS = 21
 
 # --- BOARD ELEMENT
-board_th = 1.6 * mm
+board_th = BOARD_TH * mm
 cu_th = 0.0348 * mm
-gnd_l = 78 * mm # note resonant at 78; try others; 
-gnd_w = 30 * mm
-pad_gap = 1 * mm
+gnd_l = BOARD_L * mm # note resonant at 78; try others;
+gnd_w = BOARD_W * mm
+pad_gap = PAD_GAP * mm
 
-pad_w = 6 * mm
-pad_l = 6 * mm
+pad_w = PAD_W * mm
+pad_l = PAD_L * mm
+
+# Fixed localised feed dimensions
+feed_w = 0.5 * mm
+feed_port_gap = 0.5 * mm
+
+if pad_gap <= feed_port_gap:
+    raise ValueError(
+        f"PAD_GAP ({PAD_GAP:g} mm) must be greater than the fixed feed port gap "
+        f"({feed_port_gap/mm:g} mm)."
+    )
 
 diel_l = gnd_l + pad_gap + pad_l + 0.5 * mm
 
@@ -75,36 +104,47 @@ model.settings.check_ram = False
 model.check_version("2.8.9")
 
 # --- DEFINE GEOMETRY
-substrate = em.geo.Box(gnd_w, 
-                       diel_l, 
-                       board_th, 
+substrate = em.geo.Box(gnd_w,
+                       diel_l,
+                       board_th,
                        position=(0,0,-board_th)
                        ).set_material(em.Material(er, color="#207020", opacity=0.6))
 
-pad = em.geo.Box(pad_w, 
-                 pad_l, 
+pad = em.geo.Box(pad_w,
+                 pad_l,
                  cu_th,
                  position = (0,gnd_l + pad_gap,0)
                  ).set_material(em.lib.COPPER)
 
-gnd_top = em.geo.Box(gnd_w, 
-                     gnd_l, 
+gnd_top = em.geo.Box(gnd_w,
+                     gnd_l,
                      cu_th,
                      position=(0,0,0)
                      ).set_material(em.lib.COPPER)
 
-# gnd_bottom = em.geo.Box(gnd_w, 
-#                         gnd_l, 
-#                         cu_th, 
+# gnd_bottom = em.geo.Box(gnd_w,
+#                         gnd_l,
+#                         cu_th,
 #                         position=(0,0,-board_th - cu_th)
 #                         ).set_material(em.lib.COPPER)
 
+# Narrow copper feed trace from the localised port to the CCE pad
+feed_l = pad_gap - feed_port_gap
+
+feed_trace = em.geo.Box(
+        feed_w,
+        feed_l,
+        cu_th,
+        position=(0, gnd_l + feed_port_gap, 0)
+        ).set_material(em.lib.COPPER)
+
 air = em.geo.open_region(15 * mm, 15 *mm, 15 * mm).background()
 
+# Fixed-size lumped port between the ground and feed trace
 port = em.geo.Plate(
-        np.array([0, gnd_l, cu_th]),   # start at top edge of ground
-        np.array([0.5 * mm, 0, 0]),          # width across x
-        np.array([0, pad_gap, 0])         # across the gap toward the pad
+        np.array([0, gnd_l, cu_th]),              # start at top edge of ground
+        np.array([feed_w, 0, 0]),                 # width across x
+        np.array([0, feed_port_gap, 0])           # fixed small feed gap
         )
 
 model.view(off_screen=HEADLESS)
@@ -119,6 +159,7 @@ model.mw.set_frequency_range(f1, f2, FREQ_STEPS)
 model.commit_geometry()
 
 model.mesher.set_face_size(port, 0.3 * mm)
+model.mesher.set_boundary_size(feed_trace.face('-z'), 0.3 * mm)
 model.mesher.set_boundary_size(pad.face('-z'), 0.3*mm)
 model.generate_mesh()
 model.view(selections=[port], screenshot=f"{OUT}/mesh_initial.png")
@@ -126,8 +167,8 @@ model.view(selections=[port], screenshot=f"{OUT}/mesh_initial.png")
 # --- PORT DEFINITIONS
 port_bc = model.mw.bc.LumpedPort(
         port, 1,
-        width=0.5 * mm, 
-        height=pad_gap,
+        width=feed_w,
+        height=feed_port_gap,
         direction=em.YAX, Z0=50
         )
 
@@ -138,13 +179,13 @@ abc = model.mw.bc.AbsorbingBoundary(boundary_selection)
 model.adaptive_mesh_refinement(frequency=f0, max_steps=2)
 
 # --- VIEW MODEL PRIOR TO SOLVE
-model.view(plot_mesh = True, 
-           volume_mesh=False, 
-           screenshot=f"{OUT}/mesh.png", 
+model.view(plot_mesh = True,
+           volume_mesh=False,
+           screenshot=f"{OUT}/mesh.png",
            off_screen=HEADLESS)
 
-model.view(bc=True, 
-           screenshot=f"{OUT}/bc.png", 
+model.view(bc=True,
+           screenshot=f"{OUT}/bc.png",
            off_screen=HEADLESS)
 
 
@@ -187,7 +228,7 @@ plt.close()
 # --- 3D RADIATION
 model.display.populate()
 field = data.field.find(freq = f0)
-ff3d = field.farfield_3d(boundary_selection, origin=(0,0,0)) 
+ff3d = field.farfield_3d(boundary_selection, origin=(0,0,0))
 surf = ff3d.surfplot('normE', rmax=40 * mm, offset=(0, 0, 0))
 model.display.add_surf(*surf.xyzf)
 model.display.show(screenshot=f"{OUT}/ff_3d.png")
@@ -197,6 +238,7 @@ model.display.populate()
 
 # Plot normH on each copper surface separately
 model.display.add_field(field.boundary(gnd_top.face('-z')).scalar('normH', 'abs'))
+model.display.add_field(field.boundary(feed_trace.face('-z')).scalar('normH', 'abs'))
 model.display.add_field(field.boundary(pad.face('-z')).scalar('normH', 'abs'))
 
 model.display.show(

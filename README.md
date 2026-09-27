@@ -22,13 +22,32 @@ All other dependencies (NumPy, Matplotlib, PyVista, SciPy, etc.) are installed a
 python booster-barebones.py
 ```
 
-The script runs headless by default (`HEADLESS=True`). No arguments are required. Simulation results are written to `output_booster-revamped/`.
+No arguments are required. Configuration is read from `.env` when present. By default, the script opens the geometry viewer and stops before solving (`INSPECT_GEO_ONLY=True`). Set `INSPECT_GEO_ONLY=False` to run the full simulation.
+
+With the default pad dimensions, simulation results are written to `output_gap1mm_pad6x8mm/`.
+
+---
+
+## Configuration
+
+Copy [.env.example](.env.example) to `.env` and adjust values as needed. All pad dimensions are in millimetres.
+
+| Variable | Default | Description |
+|---|---:|---|
+| `HEADLESS` | `False` | Hide interactive viewer windows |
+| `INSPECT_GEO_ONLY` | `True` | Exit after opening the geometry, before meshing and solving |
+| `PAD_GAP` | `1` | Gap between the ground plane and coupling pad |
+| `PAD_W` | `6` | Coupling pad width |
+| `PAD_L` | `8` | Coupling pad length |
+| `OUT_DIR` | Generated | Optional output-directory override |
+
+When `OUT_DIR` is unset, the output folder is generated from the pad parameters. For example, `PAD_GAP=1.5`, `PAD_W=6`, and `PAD_L=8` produce `output_gap1p5mm_pad6x8mm/`.
 
 ---
 
 ## Outputs
 
-All files are saved to `output_booster-revamped/`.
+All files are saved to the selected output directory.
 
 | File | Description |
 |---|---|
